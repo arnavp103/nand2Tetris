@@ -1,0 +1,24 @@
+// My own special chip I need to make this easier
+
+CHIP Inv16 {
+    IN in;
+    OUT out[16];
+
+    PARTS:
+    Or(a=in, b=in, out=out[0]);
+    Or(a=in, b=in, out=out[1]);
+    Or(a=in, b=in, out=out[2]);
+    Or(a=in, b=in, out=out[3]);
+    Or(a=in, b=in, out=out[4]);
+    Or(a=in, b=in, out=out[5]);
+    Or(a=in, b=in, out=out[6]);
+    Or(a=in, b=in, out=out[7]);
+    Or(a=in, b=in, out=out[8]);
+    Or(a=in, b=in, out=out[9]);
+    Or(a=in, b=in, out=out[10]);
+    Or(a=in, b=in, out=out[11]);
+    Or(a=in, b=in, out=out[12]);
+    Or(a=in, b=in, out=out[13]);
+    Or(a=in, b=in, out=out[14]);
+    Or(a=in, b=in, out=out[15]);
+}
