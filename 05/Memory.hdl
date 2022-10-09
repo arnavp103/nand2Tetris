@@ -5,20 +5,20 @@
 
 /**
  * The complete address space of the Hack computer's memory,
- * including RAM and memory-mapped I/O. 
+ * including RAM and memory-mapped I/O.
  * The chip facilitates read and write operations, as follows:
  *     Read:  out(t) = Memory[address(t)](t)
  *     Write: if load(t-1) then Memory[address(t-1)](t) = in(t-1)
- * In words: the chip always outputs the value stored at the memory 
- * location specified by address. If load==1, the in value is loaded 
- * into the memory location specified by address. This value becomes 
+ * In words: the chip always outputs the value stored at the memory
+ * location specified by address. If load==1, the in value is loaded
+ * into the memory location specified by address. This value becomes
  * available through the out output from the next time step onward.
  * Address space rules:
- * Only the upper 16K+8K+1 words of the Memory chip are used. 
- * Access to address>0x6000 is invalid. Access to any address in 
- * the range 0x4000-0x5FFF results in accessing the screen memory 
- * map. Access to address 0x6000 results in accessing the keyboard 
- * memory map. The behavior in these addresses is described in the 
+ * Only the upper 16K+8K+1 words of the Memory chip are used.
+ * Access to address>0x6000 is invalid. Access to any address in
+ * the range 0x4000-0x5FFF results in accessing the screen memory
+ * map. Access to address 0x6000 results in accessing the keyboard
+ * memory map. The behavior in these addresses is described in the
  * Screen and Keyboard chip specifications given in the book.
  */
 
@@ -27,5 +27,20 @@ CHIP Memory {
     OUT out[16];
 
     PARTS:
-    // Put your code here:
+    And(a=address[14], b=address[13], out=kb);  // 1 if address is 24756
+    Not(in=kb, out=nkb);                        // 1 if address is less than 24756
+
+    And(a=address[14], b=nkb, out=sc);  // 1 if address is less than 24756 and greater than or equal to 16383
+    Not(in=sc, out=ram);                // 1 if address is less than 16383, so go to RAM
+
+    Mux(a=false, b=load, sel=ram, out=loadram); // So we don't accidentally write to RAM when load is true on screen
+    Mux(a=false, b=load, sel=sc, out=loadsc);   // So we don't accidentally write to screen when load is true on RAM
+
+    RAM16K(in=in, load=loadram, address=address[0..13], out=ramout);
+    Screen(in=in, load=loadsc, address=address[0..12], out=scrout);   // 100 0000 0000 0000 - 101 1111 1111 1111 = 16384 - 24755
+    Keyboard(out=kbout); // 110 0000 0000 0000 = 24756
+    
+
+    Mux16(a=scrout, b=ramout, sel=ram, out=interout);   // If ram ramout, else scrout = interout
+    Mux16(a=interout, b=kbout, sel=kb, out=out);        // If kb kbout, else interout = out. kb can't be true if ram but in case !ram
 }

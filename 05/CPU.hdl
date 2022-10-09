@@ -6,23 +6,23 @@
 /**
  * The Hack CPU (Central Processing unit), consisting of an ALU,
  * two registers named A and D, and a program counter named PC.
- * The CPU is designed to fetch and execute instructions written in 
+ * The CPU is designed to fetch and execute instructions written in
  * the Hack machine language. In particular, functions as follows:
- * Executes the inputted instruction according to the Hack machine 
+ * Executes the inputted instruction according to the Hack machine
  * language specification. The D and A in the language specification
  * refer to CPU-resident registers, while M refers to the external
- * memory location addressed by A, i.e. to Memory[A]. The inM input 
- * holds the value of this location. If the current instruction needs 
- * to write a value to M, the value is placed in outM, the address 
- * of the target location is placed in the addressM output, and the 
- * writeM control bit is asserted. (When writeM==0, any value may 
- * appear in outM). The outM and writeM outputs are combinational: 
- * they are affected instantaneously by the execution of the current 
- * instruction. The addressM and pc outputs are clocked: although they 
- * are affected by the execution of the current instruction, they commit 
- * to their new values only in the next time step. If reset==1 then the 
- * CPU jumps to address 0 (i.e. pc is set to 0 in next time step) rather 
- * than to the address resulting from executing the current instruction. 
+ * memory location addressed by A, i.e. to Memory[A]. The inM input
+ * holds the value of this location. If the current instruction needs
+ * to write a value to M, the value is placed in outM, the address
+ * of the target location is placed in the addressM output, and the
+ * writeM control bit is asserted. (When writeM==0, any value may
+ * appear in outM). The outM and writeM outputs are combinational:
+ * they are affected instantaneously by the execution of the current
+ * instruction. The addressM and pc outputs are clocked: although they
+ * are affected by the execution of the current instruction, they commit
+ * to their new values only in the next time step. If reset==1 then the
+ * CPU jumps to address 0 (i.e. pc is set to 0 in next time step) rather
+ * than to the address resulting from executing the current instruction.
  */
 
 CHIP CPU {
@@ -34,10 +34,81 @@ CHIP CPU {
                          // the current program (reset==0).
 
     OUT outM[16],        // M value output
-        writeM,          // Write to M? 
+        writeM,          // Write to M?
         addressM[15],    // Address in data memory (of M)
         pc[15];          // address of next instruction
 
     PARTS:
-    // Put your code here:
+    /* The way the CPU works is as follows:
+     * If it's an A instruction, it will set the A register to the value of the instruction and inc PC
+     * If it's a C instruction, then we store the computation depending on the three destination bits, and jump or increment PC
+     * If a reset instruction comes through we set the PC to 0
+    */
+
+    // There should be a jump and a destination if the hack instruction is a C instruction which starts with 1
+    And(a=instruction[15], b=true, out=cins);
+    // If it's an A instruction then instruction[15] is 0
+    Not(in=cins, out=ains);
+
+    // If it's a C instruction, then we can split the destination bits into three categories
+    // ins[6] = A, ins[5] = D, ins[4] = M
+    And(a=instruction[5], b=cins, out=loadA);
+    And(a=instruction[4], b=cins, out=loadD);
+    And(a=instruction[3], b=cins, out=loadM, out=writeM);
+
+    DRegister(in=aluout, load=loadD, out=data);
+
+    // If we have an A instruction, then we can just set the A register to the value of the instruction
+    Mux16(a=aluout, b=instruction, sel=ains, out=areg);
+    // Even if we dont have an A instruction but we need to set A from a C instruction then we change A
+    Or(a=ains, b=loadA, out=loadAdd);
+    ARegister(in=areg, load=loadAdd, out=aval, out[0..14]=addressM);
+    // The output of addressM is the value of the address register minus the last bit which says @ Iff it's an A instruction
+    // Check this as well!
+
+    // The ALU takes in the value in the Data register and the value in either the Address register or the Memory[Address] register
+    // This is the a bit at position 12 of the instruction
+    Mux16(a=aval, b=inM, sel=instruction[12], out=alumem);  // TODO: This might not be correct in the case of an A instruction
+
+    // Now we do the legwork for deciding what goes into the ALU. This comes from the 6 computation bits:
+    // 11, 10, 9, 8, 7, 6
+    // Thankfully this matches up with the ALU control bits exactly
+    ALU(x=data, y=alumem, zx=instruction[11], nx=instruction[10], zy=instruction[9], ny=instruction[8], f=instruction[7], no=instruction[6], out=outM, out=aluout, zr=zr, ng=ng);
+    // 01111111 = data = d => -d-1  (from twos complement), A = 0 => -1, -d-1 + -1 = -d-2. no => d+1 as desired
+
+
+
+    // Now we need to do the hard work of checking if the jump condition is fulfilled
+    DMux8Way(in=true, sel=instruction[0..2], a=null, b=JGT, c=JEQ, d=JGE, e=JLT, f=JNE, g=JLE, h=JHE);  // Get the jump condition
+    // Now take all these jump conditions and check them
+    Not(in=zr, out=notzr);
+    Not(in=ng, out=notngmbzr);  // This also gives one if the result is zero so we have to check for that
+    And(a=notzr, b=notngmbzr, out=poz); // Just positives
+    Or(a=ng, b=zr, out=leqzr);  // Less than or equal to zero
+
+    // And(a=null, b=true, out=nullC); // Don't jump not worth checking anyways
+    And(a=JGT, b=poz, out=JGTC);
+    And(a=JEQ, b=zr, out=JEQC);
+    And(a=JGE, b=notngmbzr, out=JGEC);
+    And(a=JLT, b=ng, out=JLTC);
+    And(a=JNE, b=notzr, out=JNEC);
+    And(a=JLE, b=leqzr, out=JLEC);
+    And(a=JHE, b=true, out=JHEC);
+
+    // If any one of the jump conditions is fulfilled then we can jump
+    Or(a=false, b=JGTC, out=temp1);
+    Or(a=temp1, b=JEQC, out=temp2);
+    Or(a=temp2, b=JGEC, out=temp3);
+    Or(a=temp3, b=JLTC, out=temp4);
+    Or(a=temp4, b=JNEC, out=temp5);
+    Or(a=temp5, b=JLEC, out=temp6);
+    Or(a=temp6, b=JHEC, out=jump);
+
+    And(a=jump, b=cins, out=jmp);   // Jump Condition is fulfilled and it is a C instruction = jmp which is the load bit for the PC
+
+    // Now we have to find the address to jump to, which is the value in the A register
+    Mux16(a=pcout, b=aval, sel=jmp, out=input); // If jmp then aval else previous PC out. This is to set the input of the PC
+
+    // The PC has builtn support for reset so we can leave it alone
+    PC(in=input, load=jmp, inc=true, reset=reset, out=pcout, out[0..14]=pc);
 }
